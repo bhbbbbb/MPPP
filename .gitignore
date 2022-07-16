@@ -1,0 +1,15 @@
+
+.vscode
+*.egg-info
+.env
+__pycache__
+
+log*
+*.json
+.cache
+
+test.*
+do.py
+
+track
+weekly_total
