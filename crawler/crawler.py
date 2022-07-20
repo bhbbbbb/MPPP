@@ -25,7 +25,11 @@ def crawl_chart(
 
     sps = SpotifyService(dotenv_path)
 
-    df['preview_url'] = [sps.get_track_preview_url(track_id) for track_id in tqdm(df['track_id'])]
+    tracks = (sps.get_track(track_id) for track_id in tqdm(df['track_id']))
+
+    tem = ((track.preview_url, track.release_date) for track in tracks)
+
+    df['preview_url'], df['release_date'] = list(zip(*tem))
 
     os.makedirs(output_dir, exist_ok=True)
     df.to_csv(output_filepath)
