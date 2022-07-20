@@ -11,5 +11,4 @@ log*
 test.*
 do.py
 
-track
-weekly_total
+data
