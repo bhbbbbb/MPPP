@@ -1,58 +1,45 @@
+from datetime import date
 import os
 import logging
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from .common import load_track, InvalidDateException
+from .common import ChartCol, load_chart
+from .track import Track, InvalidDateException
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.FileHandler('log_.log', 'a', encoding='utf8'))
 logger.setLevel(logging.DEBUG)
 
 
-# pylint: disable=line-too-long
-USECOLS = ['pos', 'track_name', 'track_id', 'weeks', 'top10', 'peak', 'peak_x', 'peak_streams', 'totals', 'preview_url', 'release_date']
 
-class Chart:
-    POS = 'pos'
-    TRACK_NAME = 'track_name'
-    TRACK_ID = 'track_id'
-    WEEKS = 'weeks'
-    TOP10 = 'top10'
-    PEAK = 'peak'
-    PEAK_X = 'peak_x'
-    PEAK_STREAMS = 'peak_streams'
-    TOTALS = 'totals'
-    PREVIEW_URL = 'preview_url'
-    RELEASE_DATE = 'release_date'
+def make_sets(
+    chart_path: str,
+    *,
+    region: str,
+    stream_root: str,
+    now_date: date,
+    output_dir: str = 'sets',
+):
 
-
-
-def load_chart(chart_path: str):
-    df: pd.DataFrame = pd.read_csv(chart_path, usecols=USECOLS)
-
-    df = df[df[Chart.PREVIEW_URL].notna()]
-    return df
-
-    # df[Chart.RELEASE_DATE] = [parse_date(date_string) for date_string in df[Chart.RELEASE_DATE]]
-    # df = df[df[Chart.RELEASE_DATE] != None]
-
-    # df = df[df[Chart.RELEASE_DATE].notna()]
-
-
-def make_sets(chart: pd.DataFrame, region: str, stream_root: str,output_dir: str = 'sets'):
+    chart = load_chart(chart_path)
 
     def try_load_track(track_id: str):
         try:
-            load_track(track_id, region, stream_root)
-            return track_id
+            track = Track(
+                track_id,
+                use_region=region,
+                stream_root=stream_root,
+                now_date=now_date,
+            )
+            return track.is_valid()
         except InvalidDateException:
             print(f'invalid: {track_id}')
             return None
     
     track_ids = []
 
-    for track_id in chart[Chart.TRACK_ID]:
+    for track_id in chart[ChartCol.TRACK_ID]:
         if try_load_track(track_id):
             track_ids.append(track_id)
 

@@ -83,6 +83,7 @@ class TrackParser:
                 pos_row[heading] = stream_row[heading] = None
             else:
                 pos_row[heading] = int(col.find_next('span', class_='p').string)
-                stream_row[heading] = TrackParser._remove_comma(col.find_next('span', class_='s').string)
+                stream_row[heading] = \
+                    TrackParser._remove_comma(col.find_next('span', class_='s').string)
 
         return pos_row, stream_row

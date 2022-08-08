@@ -82,10 +82,11 @@ def crawl_tracks_in_chart(
         total=len(chart_df[offset:limit])
     )
     for track_id, preview_url in pbar:
-        crawl_track(track_id, output_dir, overwrite)
 
         mp3_path = os.path.join(preview_dir, f'{track_id}.mp3')
         if not pd.isna(preview_url) and not os.path.exists(mp3_path):
+            crawl_track(track_id, output_dir, overwrite)
+
             save_preview(preview_url, mp3_path)
 
     return
