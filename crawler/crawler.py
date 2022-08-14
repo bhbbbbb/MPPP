@@ -1,4 +1,6 @@
 import os
+from threading import Thread
+from queue import Queue
 
 import pandas as pd
 from tqdm import tqdm
@@ -81,12 +83,48 @@ def crawl_tracks_in_chart(
         zip(chart_df['track_id'][offset:limit], chart_df['preview_url'][offset:limit]),
         total=len(chart_df[offset:limit])
     )
+
+    END = 'end'
+    q1 = Queue(maxsize=10)
+    def mp3_downloader():
+        while True:
+            args = q1.get()
+            if args == END:
+                return
+            save_preview(*args)
+            q1.task_done()
+    
+    q2 = Queue(maxsize=10)
+    def track_crawler():
+        while True:
+            args = q2.get()
+            if args == END:
+                return
+            crawl_track(*args)
+            q2.task_done()
+
+    th1 = Thread(target=mp3_downloader, daemon=True)
+    th1.start()
+    th2 = Thread(target=track_crawler, daemon=True)
+    th2.start()
+
     for track_id, preview_url in pbar:
 
         mp3_path = os.path.join(preview_dir, f'{track_id}.mp3')
-        if not pd.isna(preview_url) and not os.path.exists(mp3_path):
-            crawl_track(track_id, output_dir, overwrite)
 
-            save_preview(preview_url, mp3_path)
+        if pd.isna(preview_url) or os.path.exists(mp3_path):
+            continue
 
+        # crawl_track(track_id, output_dir, overwrite)
+        q2.put((track_id, output_dir, overwrite))
+        # save_preview(preview_url, mp3_path)
+        q1.put((preview_url, mp3_path))
+
+    q2.join()
+    q1.join()
+    q1.put(END)
+    q2.put(END)
+    th2.join()
+    th1.join()
+    print('done')
     return

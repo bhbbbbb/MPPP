@@ -8,7 +8,6 @@ import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-# import torch
 from torch import Tensor
 try:
     from torchaudio.backend import soundfile_backend as backend
@@ -74,6 +73,13 @@ class Track:
         if self.config is None:
             self.config = TrackConfig(**kwargs)
             self.config.check_and_freeze()
+        
+        elif len(kwargs):
+            d = config.asdict()
+            d.update(**kwargs)
+            self.config = TrackConfig(**d)
+            self.config.check_and_freeze()
+
 
 
         self.stream, self.start_date = Track._load_stream(
@@ -228,7 +234,8 @@ class Track:
     def from_set(
         set_path: str,
         config: TrackConfig,
-        indices: Iterable[int] = None
+        indices: Iterable[int] = None,
+        **kwargs,
     ) -> Iterator[Track]:
 
         ids = pd.read_csv(set_path)['track_id']
@@ -236,4 +243,4 @@ class Track:
         if indices is not None:
             ids = ids[indices]
 
-        return (Track(track_id, config) for track_id in ids)
+        return (Track(track_id, config, **kwargs) for track_id in ids)

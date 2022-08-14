@@ -4,6 +4,7 @@ import math
 from typing import Iterator, Tuple
 
 import numpy as np
+import pandas as pd
 from torch import Tensor
 from torch.utils.data import Dataset as BaseDataset, DataLoader
 from sklearn.preprocessing import StandardScaler
@@ -52,13 +53,21 @@ class MPPPDataset(BaseDataset):
         
         assert set_path is not None
 
-        return list(Track.from_set(set_path, config))
+        if not config.use_mixed_region:
+            return list(Track.from_set(set_path, config))
+        
+        df = pd.read_csv(set_path, usecols=['track_id', 'region'])
+
+        return [
+            Track(track_id, config, use_region=region) for track_id, region\
+                in zip(df['track_id'], df['region'])
+        ]
         
 
     def __len__(self):
         return len(self.tracks)
     
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> Tuple[Tensor, np.ndarray]:
 
         track = self.tracks[index]
 

@@ -62,6 +62,53 @@ def make_sets(
     test_set.to_csv(os.path.join(output_dir, 'test.csv'))
     return
 
+def combine_sets(
+    primary_set_dir: str,
+    secondary_set_dir: str,
+    primary_region: str,
+    secondary_region: str,
+    output_dir: str,
+):
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    __set_name__ = ['all.csv', 'train.csv', 'valid.csv', 'test.csv']
+
+    for set_name in __set_name__:
+
+        primary_path = os.path.join(primary_set_dir, set_name)
+        secondary_path = os.path.join(secondary_set_dir, set_name)
+
+        assert os.path.exists(primary_path)
+        assert os.path.exists(secondary_path)
+
+        output_path = os.path.join(output_dir, set_name)
+        _combine_set(primary_path, secondary_path, primary_region, secondary_region, output_path)
+    
+    return
+
+
+def _combine_set(
+    primary_set_path: str,
+    secondary_set_path: str,
+    primary_region: str,
+    secondary_region: str,
+    output_path: str,
+):
+    
+    primary = pd.read_csv(primary_set_path)['track_id']
+    secondary = pd.read_csv(secondary_set_path)['track_id']
+
+    d_s = {s: secondary_region for s in secondary}
+    d_p = {p: primary_region for p in primary}
+
+    d_s.update(d_p)
+
+    result_df = pd.DataFrame({'track_id': d_s.keys(), 'region': d_s.values()})
+    print(result_df)
+    result_df.to_csv(output_path)
+    return
+
 def get_metrices_from_track_history():
     pass
 
