@@ -4,11 +4,13 @@
 .env
 __pycache__
 
+*.log
 log*
 *.json
 .cache
 
 test.*
+test
 do.py
 
 data

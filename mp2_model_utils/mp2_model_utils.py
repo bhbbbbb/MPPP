@@ -146,6 +146,9 @@ class MP2ModelUtils(BaseModelUtils):
         pbar = tqdm(dataset.dataloader)
 
         idx = 0
+        predicteds = []
+        targetss = []
+        titles = []
 
         for features, targets in pbar:
             
@@ -164,14 +167,34 @@ class MP2ModelUtils(BaseModelUtils):
                 f'L_debut: {debut_loss.item(): .3f}'
             )
 
-            MP2ModelUtils._plot_results(
-                track.stream,
-                dataset.scaler.inverse_transform(output.cpu())[0],
-                dataset.scaler.inverse_transform(targets.cpu())[0],
-                title,
-            )
-
+            predicteds.append(dataset.scaler.inverse_transform(output.cpu())[0])
+            targetss.append(dataset.scaler.inverse_transform(targets.cpu())[0])
+            titles.append(title)
+            # MP2ModelUtils._plot_results(
+            #     track.stream,
+            #     dataset.scaler.inverse_transform(output.cpu())[0],
+            #     dataset.scaler.inverse_transform(targets.cpu())[0],
+            #     title,
+            # )
             idx += 1
+        
+        p_sum, p_debut = list(zip(*predicteds))
+        t_sum, t_debut = list(zip(*targetss))
+        plt.title('sumations')
+        plt.plot(range(len(p_sum)), p_sum, label='predicted')
+        plt.plot(range(len(t_sum)), t_sum, label='target')
+        plt.legend()
+        plt.show()
+        plt.title('debuts')
+        plt.plot(range(len(p_debut)), p_debut, label='predicted')
+        plt.plot(range(len(t_debut)), t_debut, label='target')
+        plt.legend()
+        plt.show()
+        # plt.title('debuts')
+        # plt.plot(range(len(predicteds)), predicteds, label='predicted')
+        # plt.plot(range(len(targetss)), targetss, label='target')
+        # plt.legend()
+        return
 
         
     @staticmethod
