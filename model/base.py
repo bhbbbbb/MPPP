@@ -1,5 +1,6 @@
 import logging
 from typing import Callable
+import torch
 from torch import nn
 from torch import Tensor
 
@@ -78,6 +79,7 @@ class Block(nn.Module):
         sr_ratio: int = 1,
         head_dim: int = None,
         dropout: float = 0.0,
+        stochastic_depth_rate: float = 0.0,
     ):
         super().__init__()
         self.attention = nn.Sequential(
@@ -93,23 +95,46 @@ class Block(nn.Module):
 
         self.attention_residual = (sr_ratio == 1)
         self.ff_residual = (dim == out_dim or out_dim is None)
+
+        if stochastic_depth_rate > 0.:
+            assert self.attention_residual or self.ff_residual
+
+        self.stoch_depth = StochasticDepth(stochastic_depth_rate)\
+            if stochastic_depth_rate > 0 else nn.Identity()
         return
     
     def forward(self, x: Tensor) -> Tensor:
 
+        residual = x
         # logger.debug(f'x before attention ({x.shape}):')
         # logger.debug(x)
-        tem = self.attention(x)
-        if self.attention_residual:
-            x = tem + x
-        else:
-            x = tem
-        # logger.debug(f'x before ff ({x.shape}):')
-        # logger.debug(x)
+        x = self.attention(x)
 
-        tem = self.ff(x)
+        if self.attention_residual:
+            x = self.stoch_depth(x) + residual
+
+        residual = x
+        x = self.ff(x)
         if self.ff_residual:
-            x = tem + x
-        else:
-            x = tem
+            x = self.stoch_depth(x) + residual
+
         return x
+
+class StochasticDepth(nn.Module):
+    def __init__(self, stochastic_depth_rate:float):
+        super().__init__()
+
+        assert 0.0 <= stochastic_depth_rate <= 1.0
+        # self.drop_rate = stoch_depth_rate
+        self.survival_rate = stochastic_depth_rate
+        return
+
+    def forward(self, x: Tensor):
+        if not self.training:
+            return x
+
+        size = [1] * x.ndim
+        is_drop = torch.empty(size, dtype=x.dtype, device=x.device)
+        is_drop = is_drop.bernoulli_(self.survival_rate)
+        
+        return x * is_drop

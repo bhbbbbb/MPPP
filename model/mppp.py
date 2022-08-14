@@ -20,6 +20,7 @@ class Encoder(nn.Module):
         out_dim: int
         sr_ratio: int
         dropout: float
+        stochastic_depth_rate: float
 
     def __init__(
         self,
