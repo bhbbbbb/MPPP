@@ -1,13 +1,14 @@
 import os
 from datetime import date
-from typing import Dict
+from typing import Dict, List, Union
 
 from model_utils.base import UNIMPLEMENTED, NOT_NECESSARY
 
 from util.track import TrackConfig
+from util.augument import AugConfig
 from .mode import Mode
 
-class DatasetConfig(TrackConfig):
+class DatasetConfig(TrackConfig, AugConfig):
 
     # -----------------  track config -----------------------
     sample_rate = 16000
@@ -15,14 +16,25 @@ class DatasetConfig(TrackConfig):
     min_track_length: int = 104
     """num of weeks"""
 
-    padding_val: float = 0.0
-    """padding value used for null (val after log10)"""
-
     now_date: date = UNIMPLEMENTED
     # now_date: date = date(2022, 7, 20)
     """date that data was fetched"""
 
-    use_region: str = UNIMPLEMENTED
+    use_regions: Union[List[str], Dict[str, int]] = UNIMPLEMENTED
+    """
+    e.g.
+    List:
+        ['us', 'jp', 'tw']
+    
+    Dict(with weight):
+        {
+            'us': 4,
+            'jp': 2,
+            'tw': 1,
+        }
+    """
+    
+    num_samples_per_track: int = 1
 
     stream_root: str = UNIMPLEMENTED
 
@@ -33,8 +45,6 @@ class DatasetConfig(TrackConfig):
     TRAIN_SET_PATH: str = UNIMPLEMENTED
     VALID_SET_PATH: str = UNIMPLEMENTED
     TEST_SET_PATH: str = UNIMPLEMENTED
-
-    use_mixed_region: bool = UNIMPLEMENTED
 
     # ------------------
 
@@ -47,27 +57,27 @@ class DatasetConfig(TrackConfig):
 
     pin_memory: bool = True
 
-    drop_last: bool = True
-
     # ----------------------------------------
 
     mp2_scaler_path: str = UNIMPLEMENTED
 
-    # --------------------------------------------
+    # -------------- AugConfig --------------------
 
-    freq_mask_param: int = int(80 * 0.2)
+
+    freq_mask_param: int = int(128 * 0.2)
+
     time_mask_param: int = int(2800 * 0.2)
-    random_gain_param: float = 7.
 
-@DatasetConfig.register_checking_hook
-def check_region_config(config: DatasetConfig):
-    """Deambiguous"""
-    print(
-        f'checkfor (use_mixed_region, use_region) = {config.use_mixed_region}, {config.use_region}'
-    )
-    if config.use_mixed_region:
-        assert not config.use_region, f'use_region = {config.use_region}'
-    return
+    gain_param: float = 7.
+
+    rolling_distance: int = 256
+
+    add_noise: bool = False
+
+    max_len: int = 2800
+
+    # -----------------------------------------
+
 
 @DatasetConfig.register_checking_hook
 def check_worker_setup(config: DatasetConfig):

@@ -1,12 +1,20 @@
 # import sklearn.model_selection as sk
 import os
 import math
-from typing import Iterator, Tuple
+from typing import Iterable, Iterator, Tuple, Dict
 
 import numpy as np
 import pandas as pd
 from torch import Tensor
-from torch.utils.data import Dataset as BaseDataset, DataLoader
+from torch.utils.data import (
+    IterableDataset,
+    DataLoader,
+    get_worker_info,
+    RandomSampler,
+    BatchSampler,
+    WeightedRandomSampler
+)
+from torch.nn import Identity
 from sklearn.preprocessing import StandardScaler
 import joblib
 from tqdm import tqdm
@@ -16,22 +24,26 @@ from util.augument import Transform
 from .mode import Mode as M
 from .config import DatasetConfig
 
-class MPPPDataset(BaseDataset):
+class MPPPDataset(IterableDataset):
 
+    region_weights: Dict[str, float]
     def __init__(self, config: DatasetConfig, mode: M):
         super().__init__()
 
         self.config = config
         self.mode = mode
 
-        self.tracks = MPPPDataset._load_tracks(mode, config)
-        self.transfrom = None
-        if mode is M.TRAIN:
-            self.transfrom = Transform(
-                self.config.freq_mask_param,
-                self.config.time_mask_param,
-                self.config.random_gain_param,
-            )
+        self.transfrom = Transform(config) if mode == M.TRAIN else Identity()
+
+        set_path = MPPPDataset._get_set_path(mode, config)
+        self.df = pd.read_csv(set_path)
+
+        self.region_weights = self.config.use_regions
+        if not isinstance(self.config.use_regions, dict):
+            self.region_weights = {region: 1 for region in self.config.use_regions}
+
+        self.tracks = [Track(track_id, config) for track_id in self.df['track_id']]
+        self.indices_for_workers = None
         return
     
     @property
@@ -39,54 +51,78 @@ class MPPPDataset(BaseDataset):
         return self.config.batch_size[self.mode]
 
     @staticmethod
-    def _load_tracks(mode: M, config: DatasetConfig):
+    def _get_set_path(mode: M, config: DatasetConfig):
 
-        set_path = None
         if mode is M.TRAIN:
-            set_path = config.TRAIN_SET_PATH
+            return config.TRAIN_SET_PATH
         
-        elif mode is M.VALID:
-            set_path = config.VALID_SET_PATH
+        if mode is M.VALID:
+            return config.VALID_SET_PATH
         
-        elif mode is M.TEST:
-            set_path = config.TEST_SET_PATH
+        if mode is M.TEST:
+            return config.TEST_SET_PATH
         
-        assert set_path is not None
-
-        if not config.use_mixed_region:
-            return list(Track.from_set(set_path, config))
+        raise Exception('123')
         
-        df = pd.read_csv(set_path, usecols=['track_id', 'region'])
-
-        return [
-            Track(track_id, config, use_region=region) for track_id, region\
-                in zip(df['track_id'], df['region'])
-        ]
-        
-
     def __len__(self):
-        return len(self.tracks)
-    
-    def __getitem__(self, index) -> Tuple[Tensor, np.ndarray]:
+        if self.mode == M.TRAIN:
+            return len(self.tracks) * self.config.num_samples_per_track
+        
+        return None
+
+    def __iter__(self):
+        worker_info = get_worker_info()
+
+        worker_id = getattr(worker_info, 'id', 0)
+        
+        for idx in self.indices_for_workers[worker_id]:
+            yield from self.__getitem__(idx)
+
+    def __getitem__(self, index: int) -> Iterable[Tuple[Tensor, np.ndarray]]:
 
         track = self.tracks[index]
+        regions = list(self.region_weights.keys())
+        region_availability = self.df.iloc[index][regions]
 
         features = track.acoustic_features
         if self.transfrom is not None:
             features = self.transfrom(features)
 
-        return features, track.stream
+        if self.mode == M.TRAIN:
+            sampler = WeightedRandomSampler(
+                weights=(region_availability * list(self.region_weights.values())),
+                num_samples=min(self.config.num_samples_per_track, int(region_availability.sum())),
+                replacement=False,
+            )
+
+            regions_to_get = (regions[i] for i in sampler)
+        
+        else:
+            regions_to_get = (r for r, a in zip(regions, region_availability) if bool(a))
+        
+
+        yield from (
+            (self.transfrom(features), track.get_stream(r)) for r in regions_to_get
+        )
+        return
     
     @property
     def dataloader(self) -> Iterator[Tuple[Tensor, Tensor]]:
+        self.indices_for_workers = list(
+            BatchSampler(
+                RandomSampler(self.tracks, replacement=False) if self.mode == M.TRAIN\
+                    else range(len(self.tracks)),
+                batch_size=math.ceil(len(self.tracks) / (self.config.num_workers or 1)),
+                drop_last=False,
+            )
+        )
         return DataLoader(
             self,
             batch_size=self.config.batch_size[self.mode],
             num_workers=self.config.num_workers,
             persistent_workers=self.config.persistent_workers,
-            shuffle=(self.mode is M.TRAIN),
             pin_memory=self.config.pin_memory,
-            drop_last=(self.mode is M.TRAIN and self.config.drop_last),
+            drop_last=(self.mode == M.TRAIN),
         )
 
 class MP2Dataset(MPPPDataset):
