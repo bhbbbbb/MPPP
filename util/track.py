@@ -2,8 +2,7 @@ from __future__ import annotations
 import os
 import re
 from datetime import date, timedelta
-from typing import Iterable, Iterator, Union
-import math
+from typing import NamedTuple, Union, List
 
 import numpy as np
 import pandas as pd
@@ -24,72 +23,129 @@ class TrackConfig(BaseConfig):
 
     sample_rate = 16000
 
-    min_track_length: int = 104
+    min_stream_length: int = 104
     """num of weeks"""
-
-    padding_val: float = 0.0
-    """padding value used for null (val after log10)"""
 
     now_date: date = UNIMPLEMENTED
     # now_date: date = date(2022, 7, 20)
     """date that data was fetched"""
 
     cache_acoustic_features: bool = True
-
-    max_acoustic_features_len: int = 2800
-
-    use_region: str = UNIMPLEMENTED
+    cache_streams: bool = True
 
     stream_root: str = UNIMPLEMENTED
 
     audio_root: str = NOT_NECESSARY
 
+    num_mel_bins: int = 128
+
 
 class InvalidDateException(BaseException):
     pass
 
-DATE_PATTERN = r'(\d{4})[\/\\-](\d{2})[\/\\-](\d{2})'
-def parse_date(date_string: str) -> Union[date, None]:
-    match = re.match(DATE_PATTERN, date_string)
+_DATE_PATTERN = r'(\d{4})[\/\\-](\d{2})[\/\\-](\d{2})'
+def _parse_date(date_string: str) -> Union[date, None]:
+    match = re.match(_DATE_PATTERN, date_string)
     
     if match:
         return date(int(match[1]), int(match[2]), int(match[3]))
     return None
 
 
+class Stream:
+
+    def __init__(
+        self,
+        data: np.ndarray,
+        region: str,
+        start_date: date,
+        required_len: int,
+    ):
+        self.data = data
+        self.region = region
+        self.start_date = start_date
+        self._trim_left_()
+        self._fix_right_(required_len)
+        return
+    
+    # def scale_(self, scaler: Callable[[np.ndarray], np.ndarray]):
+    #     self.data = scaler(self.data)
+    #     return self
+
+    def plot(self):
+        print(self.data)
+        plt.plot(list(range(len(self.data))), self.data)
+        # plt.ylim((3., 7.))
+        plt.show()
+        return
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx: int):
+        return self.data[idx]
+    
+    def __str__(self):
+        return (
+            f'<\nstart_date: {self.start_date} at region: {self.region}\n'
+            f'for {str(self.data)}'
+            '\n>'
+        )
+
+    def _trim_left_(self):
+        start = 0
+        while start < len(self):
+            if self.data[start] != 0:
+                break
+            start += 1
+        
+        self.start_date += start * timedelta(days=7)
+
+        self.data = self.data[start:]
+        return
+        
+    def _fix_right_(self, target_len: int):
+        """Trim right part if len(stream) > MIN_STREAM_LENGTH;
+        Pad with zero otherwise
+        """
+        self.data = self.data[:target_len]
+
+        if (diff := target_len - len(self)) > 0:
+            self.data = np.pad(self.data, (0, diff))
+        return
+    
+
 class Track:
 
     track_id: str
     start_date: date
-    stream: np.ndarray
+    _streams: dict[str, Stream]
     config: TrackConfig
 
-    def __init__(self, track_id: str, config: TrackConfig = None, **kwargs):
+    def __init__(self, track_id: str, config: TrackConfig):
 
         self.track_id = track_id
         
         self.config = config
 
-        if self.config is None:
-            self.config = TrackConfig(**kwargs)
-            self.config.check_and_freeze()
-        
-        elif len(kwargs):
-            d = config.asdict()
-            d.update(**kwargs)
-            self.config = TrackConfig(**d)
-            self.config.check_and_freeze()
-
-
-
-        self.stream, self.start_date = Track._load_stream(
-            track_id,
-            self.config.use_region,
-            self.config.stream_root
+        self.track_df = pd.read_csv(
+            os.path.join(self.config.stream_root, f'{track_id}.csv'),
         )
 
-        self._pre_transform()
+        self.track_df['date'] = self.track_df['date'].map(_parse_date)
+
+        self.start_date = self.track_df['date'][0]
+
+        def to_stamp(d: date) -> int:
+            return (d - self.start_date).days
+
+        self.track_df['date_stamp'] = self.track_df['date'].map(to_stamp)
+
+        if not self.is_date_valid(self.start_date):
+            raise InvalidDateException
+        
         self._features = None
+        self._streams = {}
 
         return
     
@@ -104,105 +160,79 @@ class Track:
         return self.extract_acoustic_features()
 
 
-    def is_valid(self):
+    def is_date_valid(self, start_date: date):
         return (
-            self.start_date
-            < self.config.now_date - timedelta(days=7) * self.config.min_track_length
+            start_date
+            < self.config.now_date - timedelta(days=7) * (self.config.min_stream_length + 1)
         )
     
-    def _pre_transform(self):
-        self._trim_left()
-        self._fix_right()
-        return
 
-    def __len__(self):
-        return len(self.stream)
+    def _load_unscaled_stream(
+        self,
+        region: str,
+    ) -> Union[np.ndarray, None]:
 
-    def plot(self):
-        plt.plot(list(range(len(self.stream))), self.stream)
-        plt.title(str(self.track_id))
-        plt.ylim((3.5, 6.5))
-        plt.show()
-        return
-
-    def _trim_left(self):
-        start = 0
-        while start < len(self.stream):
-            if self.stream[start] != 0:
-                break
-            start += 1
-        
-        self.start_date += start * timedelta(days=7)
-        self.stream = self.stream[start:]
-        return
-        
-        
-        # end = len(track) - 1
-        # while end >= 0:
-        #     if track[end] != 0:
-        #         break
-        #     end -= 1
-        
-        # end += 1
-        
-        # assert end - start > 0, f'expect (end - start) > 0. got ({end} - {start}) = {end - start}'
-        # return track[start:end]
-    
-    def _fix_right(self):
-        """Trim right part if len(stream) > MIN_TRACK_LENGTH;
-        Pad with zero otherwise
-        """
-        self.stream = self.stream[:self.config.min_track_length]
-
-        if (diff := self.config.min_track_length - len(self.stream)) > 0:
-            self.stream = np.pad(self.stream, (0, diff))
-        return
-
-
-    @staticmethod
-    def _load_stream(track_id: str, use_region: str, stream_root: str):
-
-        track_df = pd.read_csv(
-            os.path.join(stream_root, f'{track_id}.csv'),
-            usecols=['date', use_region.lower()]
-        )
-
-        track_df['date'] = track_df['date'].map(parse_date)
-
-        start_date: date = track_df['date'][0]
-        # assert (start_date - release_date).days >= 0,\
-        #     f'track_id: {track_id}, start_date: {start_date}, release_date: {release_date}'
-        
-        end_date: date = track_df['date'][len(track_df) - 1]
-
-        num_weeks = (end_date - start_date) / timedelta(days=7)
-
-        # assert num_weeks.is_integer()
-        if not num_weeks.is_integer():
-            raise InvalidDateException
-
-        num_weeks = int(num_weeks) + 1
-
-        streams = np.empty([num_weeks])
-        streams_idx = 0
-
-        for cur_date, stream in zip(track_df['date'], track_df[use_region]):
-
+        streams: List[float] = []
+        class Point(NamedTuple):
+            stamp: int
             stream: float
+        
+        points = map(
+            lambda ss: Point(ss[0], 0.0 if np.isnan(ss[1]) else ss[1]),
+            zip(self.track_df['date_stamp'], self.track_df[region])
+        )
 
-            while cur_date > streams_idx * timedelta(days=7) + start_date:
-                streams[streams_idx] = 0.0
-                streams_idx += 1
+        prev = cur = next(points)
+        idx = 0
+        while True:
+            streams.append(0.0)
+            target_stamp = idx * 7
 
-            # assert cur_date == streams_idx * timedelta(days=7) + start_date
-            if cur_date != streams_idx * timedelta(days=7) + start_date:
-                raise InvalidDateException
+            try:
+                while cur.stamp < target_stamp:
+                    prev, cur = cur, next(points)
+            except StopIteration:
+                break
 
-            streams[streams_idx] = 0.0 if np.isnan(stream) else math.log10(stream)
-            streams_idx += 1
+            if cur.stamp == target_stamp:
+                streams[idx] = cur.stream
+            
+            else:
+                if prev.stamp > target_stamp - 7:
+                    streams[idx] += prev.stream * (7 - (target_stamp - prev.stamp)) / 7
+                
+                if cur.stamp < target_stamp + 7:
+                    streams[idx] += cur.stream * (7 - (cur.stamp - target_stamp)) / 7
+            
+            idx += 1
+        
+        return np.array(streams)
+            
+    def get_stream(self, region: str):
+        """get stream for specific region.
 
-        # return streams, (start_date, end_date)
-        return streams, start_date
+        Returns:
+            return None if that stream is not legal
+        """
+        
+        if self.config.cache_streams and region in self._streams:
+            return self._streams[region]
+        
+        raw_stream = self._load_unscaled_stream(region)
+        print(raw_stream)
+        stream = Stream(
+            raw_stream,
+            region=region,
+            start_date=self.start_date,
+            required_len=self.config.min_stream_length,
+        )
+
+        if not self.is_date_valid(stream.start_date):
+            raise InvalidDateException(str(stream))
+
+        if self.config.cache_streams:
+            self._streams[region] = stream
+        return stream
 
     # def extract_acoustic_features(self, output_dir: str = None):
     def extract_acoustic_features(self):
@@ -221,26 +251,30 @@ class Track:
 
         # if wav.shape[0] != 1:
         #     wav = torch.mean(wav, dim=0, keepdim=True)
-        features = ta_kaldi.fbank(wav, num_mel_bins=80, sample_frequency=self.config.sample_rate)
+        features = ta_kaldi.fbank(
+            wav,
+            num_mel_bins=self.config.num_mel_bins,
+            sample_frequency=self.config.sample_rate
+        )
 
         # output_dir = output_dir or os.path.join(self.config.audio_root, '..', 'ac_features')
         # if output_dir is not None:
         #     os.makedirs(output_dir, exist_ok=True)
         #     torch.save(features, os.path.join(output_dir, f'{self.track_id}.pt'))
 
-        return features[:self.config.max_acoustic_features_len]
+        return features
     
-    @staticmethod
-    def from_set(
-        set_path: str,
-        config: TrackConfig,
-        indices: Iterable[int] = None,
-        **kwargs,
-    ) -> Iterator[Track]:
+    # @staticmethod
+    # def from_set(
+    #     set_path: str,
+    #     config: TrackConfig,
+    #     indices: Iterable[int] = None,
+    #     **kwargs,
+    # ) -> Iterator[Track]:
 
-        ids = pd.read_csv(set_path)['track_id']
+    #     ids = pd.read_csv(set_path)['track_id']
 
-        if indices is not None:
-            ids = ids[indices]
+    #     if indices is not None:
+    #         ids = ids[indices]
 
-        return (Track(track_id, config, **kwargs) for track_id in ids)
+    #     return (Track(track_id, config, **kwargs) for track_id in ids)
