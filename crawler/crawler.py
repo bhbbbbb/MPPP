@@ -29,7 +29,11 @@ def crawl_chart(
 
     tracks = (sps.get_track(track_id) for track_id in tqdm(df['track_id']))
 
-    tem = ((track.preview_url, track.release_date) for track in tracks)
+    # track may be none due to deleted track
+    tem = (
+        (track.preview_url, track.release_date) if track is not None else (None, None)\
+        for track in tracks
+    )
 
     df['preview_url'], df['release_date'] = list(zip(*tem))
 
@@ -70,6 +74,7 @@ def crawl_tracks_in_chart(
     offset: int = 0,
     output_dir: str = 'track',
     overwrite: bool = False,
+    download_preview: bool = True,
 ):
 
     chart_df = pd.read_csv(chart_csv_path, usecols=['track_id', 'preview_url'])
@@ -117,8 +122,10 @@ def crawl_tracks_in_chart(
 
         # crawl_track(track_id, output_dir, overwrite)
         q2.put((track_id, output_dir, overwrite))
-        # save_preview(preview_url, mp3_path)
-        q1.put((preview_url, mp3_path))
+
+        if download_preview:
+            # save_preview(preview_url, mp3_path)
+            q1.put((preview_url, mp3_path))
 
     q2.join()
     q1.join()

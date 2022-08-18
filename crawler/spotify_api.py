@@ -4,6 +4,7 @@ import dotenv
 import requests
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
+from spotipy.exceptions import SpotifyException
 
 # handler = logging.FileHandler('log.log', 'a', encoding='utf-8')
 # logger = logging.getLogger()
@@ -38,7 +39,11 @@ class SpotifyService:
         return
 
     def get_track(self, track_id: str):
-        return Track(self.sp.track(track_id))
+        try:
+            return Track(self.sp.track(track_id))
+        except SpotifyException as e:
+            print(e)
+        return None
 
 def save_preview(preview_url: str, output_path: str):
 
