@@ -6,13 +6,13 @@ from .mppp import Encoder, Decoder
 
 
 EB0 = Encoder.Params(
-    dim=80, head=8, head_dim=16, mlp_dim=128, out_dim=80, sr_ratio=1, dropout=0.3,
+    dim=128, head=8, head_dim=16, mlp_dim=128, out_dim=128, sr_ratio=1, dropout=0.3,
 )
 EB1 = Encoder.Params(
-    dim=80, head=8, head_dim=16, mlp_dim=64, out_dim=32, sr_ratio=4, dropout=0.3,
+    dim=128, head=8, head_dim=16, mlp_dim=64, out_dim=32, sr_ratio=4, dropout=0.3,
 )
 EB1_ = Encoder.Params(
-    dim=80, head=8, head_dim=16, mlp_dim=128, out_dim=64, sr_ratio=4, dropout=0.2,
+    dim=128, head=8, head_dim=16, mlp_dim=128, out_dim=64, sr_ratio=4, dropout=0.2,
 )
 EB2 = Encoder.Params(
     dim=32, head=2, head_dim=16, mlp_dim=32, out_dim=32, sr_ratio=1, dropout=0.5,
@@ -26,7 +26,7 @@ DB = Decoder.Params(head=2, mlp_dim=64, out_dim=None, head_dim=None, dropout=0.0
 
 class MPPPConfig(BaseConfig):
 
-    src_dim: int = 80
+    src_dim: int = 128
 
     max_input_len: int = 2800
 
@@ -42,14 +42,17 @@ class MPPPConfig(BaseConfig):
 
 class MP2Config(BaseConfig):
 
-    src_dim: int = 80
+    src_dim: int = 128
 
     max_input_len: int = 2800
 
     feature_dim: int = 32
 
     # encoder_blocks_params: List[Encoder.Params] = [EB0, EB1, EB2]
-    encoder_blocks_params: List[Encoder.Params] = [EB1_, *([EB2_] * 5)]
+    # encoder_blocks_params: List[Encoder.Params] = [EB1_, *([EB2_] * 5)]
+    pretrained_encoder_name: str = 'vit_tiny_patch16_224'
+    stochastic_depth_rate: float = 0.0,
+    dropout_rate: float = 0.0,
 
     @property
     def encoder_output_len(self):
